@@ -60,7 +60,7 @@ def preparator(arr_orig):
 
 # Import data
 
-all_tracks = pd.read_pickle('../all_hits.pkl')
+all_tracks = pd.read_pickle('../update_hits.pkl')
 all_tracks = all_tracks.sample(frac=1,random_state=randomseed).reset_index(drop=True)     # Shuffles the data
 
 
@@ -112,8 +112,10 @@ def isru(x):
 # Define the model
 
 model = Sequential()
-model.add(Dense(27, input_dim=laenge, activation=isru))
-model.add(Dense(27, activation=isru))
+model.add(Dense(50, input_dim=laenge, activation=isru))
+model.add(Dense(50, activation=isru))
+model.add(Dense(50, activation=isru))
+model.add(Dense(50, activation=isru))
 model.add(Dense(1, activation='sigmoid'))
 model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])  # metrics = [precision, recall]
 
@@ -137,6 +139,18 @@ print('Accuracy: %.2f%%' % (scores[1]*100))
 #   f.write('Accuracy: %.2f%% \n' % (scores[1]*100))
 
 
+# Plot the loss function if necessary 
+
+#plt.figure(1)
+#plt.plot(history.history['loss'])
+#plt.plot(history.history['val_loss'])
+#plt.title('Model losses')
+#plt.xlabel('epoch')
+#plt.ylabel('loss')
+#plt.legend(['train','test'], loc='upper left')
+#plt.savefig('loss.png')
+
+
 # Make predicitons with trained model
 
 Y_pred = model.predict(X_test).ravel()
@@ -150,7 +164,7 @@ areaundercurve = auc(fpr, tpr)											# Also calculate area under curve
 
 # Plot actual ROC curve
 
-plt.figure(1)
+plt.figure(2)
 plt.plot([0, 1], [0, 1], 'k--')
 plt.plot(fpr, tpr, label='Keras (area = {:.3f})'.format(areaundercurve))
 plt.xlabel('False positive rate')
