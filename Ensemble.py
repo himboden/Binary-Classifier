@@ -34,36 +34,23 @@ np.random.seed(random_seed)
 
 # Helper function
 
-def preparator(X_input, the_dimension):
+def preparator(X_input):
     
     # This is for the RNN-part of the network
-    # Takes the dataframe and makes it (total_examples, max_len_example, features_per_timestep)-dimensional
-    # The last dimension can be the following:
-        # 3: Take x,y,z positions in each step
-        # 4: Take x,y,z positions and momentum in each step
+    # Takes the dataframe and makes it (total_examples, max_len_example, 3)-dimensional
         
     num_examples = int(len(X_input))
     maxlen = 50
     stacked = []
     
-    if the_dimension == 3:
-        desired_shape = (maxlen,the_dimension)
-        for i in range(num_examples):      # This stacks and pads the data to shape 3x50
-            tempo = np.stack((X_input['hits_x'].values[i], X_input['hits_y'].values[i],
-                              X_input['hits_z'].values[i]), axis=-1)
-            nullen = np.zeros(desired_shape)
-            nullen[:tempo.shape[0],:the_dimension]=tempo
-            stacked.append(nullen)
-                             
-    if the_dimension == 4:
-        desired_shape = (maxlen,the_dimension)
-        for i in range(num_examples):      # This stacks and pads the data to shape 4x50
-            tempo = np.stack((X_input['hits_x'].values[i], X_input['hits_y'].values[i],
-                              X_input['hits_z'].values[i], X_input['MCmom'].values[i]), axis=-1)
-            nullen = np.zeros(desired_shape)
-            nullen[:tempo.shape[0],:the_dimension]=tempo
-            stacked.append(nullen)
-    
+    desired_shape = (maxlen,3)
+    for i in range(num_examples):      # This stacks and pads the data to shape 3x50
+        tempo = np.stack((X_input['hits_x'].values[i], X_input['hits_y'].values[i],
+                          X_input['hits_z'].values[i]), axis=-1)
+        nullen = np.zeros(desired_shape)
+        nullen[:tempo.shape[0],:3]=tempo
+        stacked.append(nullen)
+            
     stacked = np.array(stacked)
     return stacked  
 
@@ -98,7 +85,7 @@ all_tracks = pd.read_pickle('../upgrade_hits.pkl')
 
 Y_total = all_tracks['mcpid'].values
 
-X_total_GRU = preparator(all_tracks,4)    # 3 if x,y,z only
+X_total_GRU = preparator(all_tracks)  
 X_total_MLP = array_preparator(np.array(all_tracks['ghost_vars'].values))
 
 laenge = len(X_total_MLP[0])
@@ -134,30 +121,34 @@ recall = as_keras_metric(tf.metrics.recall)
 
 # Defines the input of the FF-part
 mlp_in = Input(shape=(laenge,),name='mlp_in')
+dense_1 = Dense(30, activation='selu')(mlp_in)
+dense_2 = Dense(30, activation='selu')(dense_1)
+dense_3 = Dense(30, activation='selu')(dense_2)
+mlp_out = Dense(1)(dense_3)
 
 # Defines the model for the RNN-part
-gru_in = Input(shape=(50,4),name='gru_in')   # (50,3) if x,y,z only
-bidir_1 = Bidirectional(GRU(30, return_sequences=True, activation='selu'))(gru_in)
+lstm_in = Input(shape=(50,3))
+bidir_1 = Bidirectional(GRU(50, return_sequences=True, activation='selu'))(lstm_in)
 norm_1 = BatchNormalization()(bidir_1)
 drop_1 = Dropout(0.1)(norm_1)
-bidir_2 = Bidirectional(GRU(30, activation='selu'))(drop_1)
+bidir_2 = Bidirectional(GRU(50, activation='selu'))(drop_1)
 norm_2 = BatchNormalization()(bidir_2)
 drop_2 = Dropout(0.1)(norm_2)
-gru_out = Dense(1)(drop_2)
+lstm_out = Dense(1)(drop_2)
 
 # Merge output of RRN with input of FF
 merged = concatenate([mlp_in, gru_out])
 
 # Defines the model for the FF-part
-dense_1 = Dense(27, activation='relu')(merged)
-dense_2 = Dense(27, activation='relu')(dense_1)
+dense_1 = Dense(10, activation='selu')(merged)
+dense_2 = Dense(10, activation='selu')(dense_1)
 out = Dense(1, activation='sigmoid')(dense_2)
 
 model = Model(inputs=[mlp_in, gru_in], outputs=out)
 model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[precision, recall])
 
 print(model.summary())
-history = model.fit([X_train_MLP, X_train_GRU], Y_train_GRU, validation_data=([X_test_MLP, X_test_GRU], Y_test_GRU), epochs=3, batch_size=75, verbose = 1)
+history = model.fit([X_train_MLP, X_train_GRU], Y_train_GRU, validation_data=([X_test_MLP, X_test_GRU], Y_test_GRU), epochs=50, batch_size=75, verbose = 1)
 
 
 scores = model.evaluate([X_test_MLP,X_test_GRU], Y_test_GRU, verbose=0)
@@ -166,8 +157,19 @@ print("Accuracy: %.2f%%" % (scores[1]*100))
 
 # Plot a model of the network
 
-plot_model(model, to_file='Ensemble_model.png')
+#plot_model(model, to_file='Hybrid_model.png')
 
+
+# Plot the loss function if desired
+
+#plt.figure(1)
+#plt.plot(history.history['loss'])
+#plt.plot(history.history['val_loss'])
+#plt.title('Model losses')
+#plt.xlabel('epoch')
+#plt.ylabel('loss')
+#plt.legend(['train','test'], loc='upper left')
+#plt.savefig('loss.png',dpi=300)
 
 # Make prediction
     
@@ -180,14 +182,14 @@ fpr, tpr, thresholds = roc_curve(Y_test_GRU.tolist(), Y_pred.tolist())     # Fal
 areaundercurve = auc(fpr, tpr)											    # Also calculate area under curve
 
 
-plt.figure(1)
+plt.figure(2)
 plt.plot([0, 1], [0, 1], 'k--')
 plt.plot(fpr, tpr, label='Keras (area = {:.3f})'.format(areaundercurve))
 plt.xlabel('False positive rate')
 plt.ylabel('True positive rate')
 plt.title('ROC curve')
 plt.legend(loc='best')
-plt.savefig('ROC_unbalanced')
+plt.savefig('ROC_hybrid')
 plt.show()
 
 
